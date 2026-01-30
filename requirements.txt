@@ -2,3 +2,6 @@ pygame
 matplotlib
 numpy
 neat-python
+gymnasiumdd 
+stable_baseline3
+torch
