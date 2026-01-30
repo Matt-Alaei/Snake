@@ -41,6 +41,7 @@ And that's it! By running `Snake.py` you're all set up to play and see how the A
 ```
 Snake/
 ├── Snake.py         # Game
+├── utils.py         # utility classes and functions
 ├── neat config      # NEAT specification
 ├── icons/           # Icons used in game
 ├── sound effects/   # Sound effects used in game

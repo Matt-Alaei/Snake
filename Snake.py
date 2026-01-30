@@ -1,9 +1,18 @@
 import neat
-import matplotlib.pyplot as plt
-import pygame, sys, random, time
+
+import pygame, sys
 from pygame.locals import *
+
 import numpy as np
+
+from stable_baselines3.common.env_util import make_vec_env
+
+import torch
+
 import pickle
+
+from utils import Button, Snake, Consumable, normalizer, EnvSnake, PPOAgent
+
 
 pygame.init()
 
@@ -31,229 +40,12 @@ pygame.display.set_caption("Snake")
 pygame.display.set_icon(background)
 clock = pygame.time.Clock()
 
-
-def normalizer(input, max, min):
-    new_input = (input - min) / (max - min)
-    return new_input
-
-
-class Button:
-    def __init__(self, button_x, button_y, color, button_width = 150, button_height = 70, box_color = None, width = 2):
-        self.button_x = button_x
-        self.button_y = button_y
-        self.color = color
-        self.box_color = box_color
-        self.button_width = button_width
-        self.button_height = button_height
-        self.width = width
-        self.music = "sound effects/click.mp3"
-
-    def draw(self, text, text_x, text_y):
-        self.text = text
-        self.text_x = text_x
-        self.text_y = text_y
-
-        if self.box_color == None:
-            font = pygame.font.Font(pygame.font.match_font("Times New Roman"), 40)
-            button_surface = pygame.Surface((self.button_x, self.button_y), pygame.SRCALPHA)
-            text = font.render(text, True, self.color)
-            text_rect = text.get_rect(center=(self.button_x // 2, self.button_y // 2))
-            
-            if self.width != 0:
-                pygame.draw.rect(dis, self.color, (self.button_x, self.button_y, self.button_width, self.button_height), self.width, border_radius=5)
-            
-            button_surface.blit(text, text_rect)
-            dis.blit(text, (self.text_x, self.text_y))
-
-        else:
-            pygame.draw.rect(dis, self.box_color, (self.button_x, self.button_y, self.button_width, self.button_height), border_radius=5)
-            pygame.draw.rect(dis, self.color, (self.button_x, self.button_y, self.button_width, self.button_height), self.width, border_radius=5)
-            font = pygame.font.Font(pygame.font.match_font("Times New Roman"), 40)
-            text = font.render(text, True, self.color)
-            dis.blit(text, (self.text_x, self.text_y))
-
-    def play_music(self):
-        pygame.mixer.music.load(self.music)
-        pygame.mixer.music.play()
-
-    def create_rect(self):
-        return pygame.Rect((self.button_x, self.button_y), (self.button_width, self.button_height))
-
-    def clicked(self, event, mouse_x, mouse_y):
-        if self.create_rect().collidepoint(mouse_x, mouse_y):
-            if event.type == MOUSEBUTTONDOWN:
-                self.play_music()
-                Game.snake_color = self.color
-                Game.background_color = self.box_color
-                Game.main_menu()
-
-class Consumable:
-    def __init__(self, music = None):
-        self.x = random.randrange(0, 580, 20)
-        self.y = random.randrange(0, 580, 20)
-        self.music = music
-
-    def get_coordinates(self):
-        return np.array([self.x, self.y])
-
-    def new_coordinates(self):
-        self.x = random.randrange(0, 580, 20)
-        self.y = random.randrange(0, 580, 20)
-
-    def eaten(self):
-        if self.music != None:
-            pygame.mixer.music.load(self.music)
-            pygame.mixer.music.play()
-        self.new_coordinates()
-
-
-class Snake:
-    def __init__(self, snake_x_speed = 20, snake_y_speed = 0, snake_x = 380, snake_y = 280,
-                 snake_width=20, snake_height=20):
-        self.snake_x_speed = snake_x_speed
-        self.snake_y_speed = snake_y_speed
-        self.snake_x = snake_x
-        self.snake_y = snake_y
-        self.snake_list = []
-        self.snake_length = 0
-        self.height = snake_height
-        self.width = snake_width
-
-    def get_coords(self):
-        return np.array([self.snake_x, self.snake_y])
-
-    def move(self):
-        self.snake_x += self.snake_x_speed
-        self.snake_y += self.snake_y_speed
-
-    def rotate(self, theta):
-        velocity_vec = np.array([self.snake_x_speed, self.snake_y_speed])
-        
-        if theta == 90:
-            rotation_vec = np.array([[0, -1],
-                                    [1, 0]])
-        else:
-            rotation_vec = np.array([[0, 1],
-                                [-1, 0]])
-        
-        self.snake_x_speed, self.snake_y_speed = np.dot(velocity_vec, rotation_vec)
-
-    def snake_growing(self):
-        g_over = False
-        snake_head = [self.snake_x, self.snake_y]
-        self.snake_list.append(snake_head)
-
-        for lst in self.snake_list:
-            pygame.draw.rect(dis, Game.snake_color, (lst[0], lst[1], self.height, self.width), border_radius=5)
-            pygame.draw.rect(dis, black, (lst[0], lst[1], self.height, self.width), width=2, border_radius=5)
-
-        for member in self.snake_list[:-1]:
-            if member == snake_head:
-                g_over = True
-        return g_over
-    
-    def food_prox(self, food_x, food_y):
-        '''
-        Returns the location of the food relative to the snake's head.
-        
-        food_x: the x cooridnate of the food
-        food_y: the y cooridnate of the food
-        '''
-        above, right, below, left, same_x, same_y = 0, 0, 0, 0, 0, 0
-        
-        if food_x > self.snake_x:
-            right = 1
-        elif food_x < self.snake_x:
-            left = 1
-        else:
-            same_x = 1
-        
-        if food_y > self.snake_y:
-            below = 1
-        elif food_y < self.snake_y:
-            above = 1
-        else:
-            same_y = 1
-
-        return above, right, below, left, same_x, same_y
-    
-    def move_dir(self, food_x, food_y):
-        '''
-        Indicates whether snake is moving towards the food or not. Returns 1 if moving towards the food,
-        0 otherwise.
-        
-        food_x: the x cooridnate of the food
-        food_y: the y cooridnate of the food
-        '''
-        above, right, below, left, _, _ = self.food_prox(food_x, food_y)
-
-        if above == 1 and self.snake_y_speed < 0:
-            return 1
-        elif right == 1 and self.snake_x_speed > 0:
-            return 1
-        elif below == 1 and self.snake_y_speed > 0:
-            return True
-        elif left == 1 and self.snake_x_speed < 0:
-            return 1
-        else:
-            return 0
-        
-    def danger_dir(self):
-        '''
-        Returns the direction that if the snake moves in that direction
-        snake will lose.
-        '''
-        danger_ahead, danger_right, danger_left = 0, 0, 0
-        
-        if len(self.snake_list) > 2:
-            for body in self.snake_list:
-                if self.snake_x_speed > 0:
-                    if body[1] == self.snake_y and body[0] - self.snake_x == 20:
-                        danger_ahead = 1
-                    
-                    elif body[0] == self.snake_x and body[1] - self.snake_y == 20:
-                        danger_right = 1
-
-                    elif body[0] == self.snake_x and self.snake_y - body[1] == 20:
-                        danger_left = 1
-
-                if self.snake_x_speed < 0:
-                    if body[1] == self.snake_y and self.snake_x - body[0] == 20:
-                        danger_ahead = 1
-                    
-                    elif body[0] == self.snake_x and body[1] - self.snake_y == 20:
-                        danger_left = 1
-
-                    elif body[0] == self.snake_x and self.snake_y - body[1] == 20:
-                        danger_right = 1
-
-                if self.snake_y_speed > 0:
-                    if body[0] == self.snake_x and body[1] - self.snake_y == 20:
-                        danger_ahead = 1
-                    
-                    elif body[1] == self.snake_y and body[0] - self.snake_x == 20:
-                        danger_left = 1
-
-                    elif body[1] == self.snake_y and self.snake_x - body[0] == 20:
-                        danger_right= 1
-                        
-                if self.snake_y_speed < 0:
-                    if body[0] == self.snake_x and self.snake_y - body[1] == 20:
-                        danger_ahead = 1
-                    
-                    elif body[1] == self.snake_y and body[0] - self.snake_x == 20:
-                        danger_right = 1
-
-                    elif body[1] == self.snake_y and body[0] - self.snake_x == 20:
-                        danger_left = 1
-
-        return danger_ahead, danger_right, danger_left
-
     
 
 class Game:
 
     highest_score = 0
+    neat_highest_score = 0
     gen = 0
     snake_color = orangish
     background_color = New
@@ -279,13 +71,13 @@ class Game:
                 dis.blit(text, (180, 20))
 
                 start = Button(225, 150, Game.snake_color)
-                start.draw("Start", 260, 160)
+                start.draw(dis, "Start", 260, 160)
 
                 options = Button(225, 265, Game.snake_color)
-                options.draw("Options", 233, 275)
+                options.draw(dis, "Options", 233, 275)
                 
                 AI = Button(225, 380, Game.snake_color)
-                AI.draw("AI", 275, 390)
+                AI.draw(dis, "AI", 275, 390)
 
                 pygame.display.flip()
 
@@ -295,7 +87,6 @@ class Game:
                     if event.type == MOUSEBUTTONDOWN:
                         start.play_music()
                         Game.game_opening()
-                        Game.gameloop()
             
                 if options.create_rect().collidepoint(mouse_x, mouse_y):
                     if event.type == MOUSEBUTTONDOWN:
@@ -323,24 +114,37 @@ class Game:
                 text2 = font2.render("Themes", True, Game.snake_color)
                 dis.blit(text2, (130, 110))
                 back = Button(0, 0, Game.snake_color, width=0)
-                back.draw("Back", 0, 0)
+                back.draw(dis, "Back", 0, 0)
                 red = Button(50, 265, (255, 0, 0), box_color=light_red)
-                red.draw("Red", 90, 275)
+                red.draw(dis, "Red", 90, 275)
                 blue = Button(225, 265, blue_sky, box_color=(0, 0, 255))
-                blue.draw("Blue", 264, 275)
+                blue.draw(dis, "Blue", 264, 275)
                 orange = Button(400, 265, (250, 167, 22), box_color=New)
-                orange.draw("Orange", 418, 275)
+                orange.draw(dis, "Orange", 418, 275)
 
                 pygame.display.flip()
 
                 mouse_x, mouse_y = pygame.mouse.get_pos()
 
-                red.clicked(event, mouse_x, mouse_y)
-                    
-                blue.clicked(event, mouse_x, mouse_y)
-                        
-                orange.clicked(event, mouse_x, mouse_y)
-                    
+                if red.create_rect().collidepoint(mouse_x, mouse_y):
+                    if event.type == MOUSEBUTTONDOWN:
+                        red.play_music()
+                        Game.snake_color = red.color
+                        Game.background_color = red.box_color
+                        Game.main_menu()
+                if blue.create_rect().collidepoint(mouse_x, mouse_y):
+                    if event.type == MOUSEBUTTONDOWN:
+                        blue.play_music()
+                        Game.snake_color = blue.color
+                        Game.background_color = blue.box_color
+                        Game.main_menu()
+                if orange.create_rect().collidepoint(mouse_x, mouse_y):
+                    if event.type == MOUSEBUTTONDOWN:
+                        orange.play_music()
+                        Game.snake_color = orange.color
+                        Game.background_color = orange.box_color
+                        Game.main_menu()
+
                 if back.create_rect().collidepoint(mouse_x,mouse_y):
                     if event.type == MOUSEBUTTONDOWN:
                         back.play_music()
@@ -362,13 +166,13 @@ class Game:
                 dis.fill(Game.background_color)
 
                 back = Button(0, 0, Game.snake_color, width=0)
-                back.draw("Back", 0, 0)
+                back.draw(dis, "Back", 0, 0)
 
                 neat_button = Button(225, 227.5, Game.snake_color)
-                neat_button.draw("NEAT", 250, 237.5)
+                neat_button.draw(dis, "NEAT", 250, 237.5)
 
                 ppo_button = Button(225, 302.5, Game.snake_color)
-                ppo_button.draw('PPO', 265, 312.5)
+                ppo_button.draw(dis, 'PPO', 265, 312.5)
 
                 pygame.display.flip()
 
@@ -403,13 +207,13 @@ class Game:
                 dis.fill(Game.background_color)
 
                 back = Button(0, 0, Game.snake_color, width=0)
-                back.draw("Back", 0, 0)                                                     
+                back.draw(dis, "Back", 0, 0)                                                     
 
                 train_button = Button(225, 227.5, Game.snake_color)
-                train_button.draw('TRAIN', 240, 237.5)
+                train_button.draw(dis, 'TRAIN', 240, 237.5)
 
                 test_button = Button(225, 302.5, Game.snake_color)
-                test_button.draw('TEST', 255, 312.5)
+                test_button.draw(dis, 'TEST', 255, 312.5)
 
                 pygame.display.flip()
 
@@ -424,6 +228,50 @@ class Game:
                         back.play_music()
                         Game.AI_menu()
 
+
+
+    @staticmethod
+    def train_ppo():
+        # env hyper params
+        pass
+        # n_envs = 5
+        # time_limit = 300
+
+        # env_kwargs = {'time_limit': time_limit}
+
+        # # PPO hyper params
+        # policy = 'MlpPolicy'
+        
+        # inital_lr = 3e-4
+        # final_lr = 1e-5
+
+        # # n_steps = 
+        # # batch_size = 
+        # # n_epochs = 
+        # # gamma = .999
+        # # gae_lambda = 
+        # # clip_range = 
+        # # clip_range_vf = 
+        # # ent_coef = 
+        # # vf_coef = 
+        
+        # # net_arch = [32, 32]
+        # # activation_fn = torch.nn.ReLU
+        # # policy_kwargs = {'net_arch': net_arch, 'activation_fn': activation_fn}
+
+        # # total_timesteps = 
+        # # eval_freq = 
+
+        # train_env = make_vec_env(EnvSnake, n_envs=n_envs, env_kwargs=env_kwargs)
+
+        # ppo_agent = PPOAgent(train_env, policy=policy, inital_lr=inital_lr, final_lr=final_lr,
+        #                      n_steps=n_steps, batch_size=batch_size, n_epochs=n_epochs, gamma=gamma,
+        #                      gae_lambda=gae_lambda , clip_range=clip_range, clip_range_vf=clip_range_vf,
+        #                      ent_coef=ent_coef, vf_coef=vf_coef, policy_kwargs=policy_kwargs)
+        
+        # ppo_agent.train(total_timesteps=total_timesteps, eval_freq=eval_freq)
+
+        
 
     @staticmethod                        
     def AI_eval(genomes, config):
@@ -535,40 +383,43 @@ class Game:
                     #rewarding the snake for going towards the apple.
                     genome.fitness += (400/fps)/(np.linalg.norm(snake_coord-apple_coord) + 1)
 
-                if snake_coord[0] < 0 or snake_coord[0] > 580 or snake_coord[1] < 0 or snake_coord[1] > 580:
+                if snake_coord[0] < 0 or snake_coord[0] > window_height-snake.height or snake_coord[1] < 0 \
+                    or snake_coord[1] > window_width-snake.width:
                     #punishing the snake for losing.
                     genome.fitness -= 10
-                    if snake.snake_length > Game.highest_score:
-                        Game.highest_score = snake.snake_length
+                    if snake.snake_length > Game.neat_highest_score:
+                        Game.neat_highest_score = snake.snake_length
                         Game.best_genome = genome
                     break
 
                 if right_turn > 4 or left_turn > 4:
                     # punishing the snake for rotating around itself.
                     genome.fitness -= 50
-                    if snake.snake_length > Game.highest_score:
-                        Game.highest_score = snake.snake_length
+                    if snake.snake_length > Game.neat_highest_score:
+                        Game.neat_highest_score = snake.snake_length
                         Game.best_genome = genome
                     break
                 
                 if timer > 20:
                     # punishing the snake for taking to long to eat an apple.
                     genome.fitness -= 50
-                    if snake.snake_length > Game.highest_score:
-                        Game.highest_score = snake.snake_length
+                    if snake.snake_length > Game.neat_highest_score:
+                        Game.neat_highest_score = snake.snake_length
                         Game.best_genome = genome
                     break
 
-                if len(snake.snake_list) > snake.snake_length:
-                    snake.snake_list.pop(0)
                 
                 if snake.snake_growing():
                     # punishing the snake for colliding with its own body.
                     genome.fitness -= 50
-                    if snake.snake_length > Game.highest_score:
-                        Game.highest_score = snake.snake_length
+                    if snake.snake_length > Game.neat_highest_score:
+                        Game.neat_highest_score = snake.snake_length
                         Game.best_genome = genome
                     break
+
+                snake.render(dis, Game.snake_color)
+                if len(snake.snake_list) > snake.snake_length:
+                    snake.snake_list.pop(0)
 
                 if snake.snake_x_speed == 20:
                     pygame.draw.circle(dis,black,(snake.snake_x+14,snake.snake_y+6),4)
@@ -588,13 +439,13 @@ class Game:
                 font = pygame.font.Font(pygame.font.match_font("Times New Roman"), 40)
                 text_gen = font.render("Generation: " + str(Game.gen), True, Game.snake_color)
                 dis.blit(text_gen, (0, 0))
-                text_max = font.render("Max score: " + str(Game.highest_score), True, Game.snake_color)
+                text_max = font.render("Max score: " + str(Game.neat_highest_score), True, Game.snake_color)
                 dis.blit(text_max, (360, 0))
                 
                 pygame.display.flip()
                 clock.tick(fps)
 
-        Game.high_scores.append(Game.highest_score)
+        Game.high_scores.append(Game.neat_highest_score)
         Game.left_turns.append(num_left)
         Game.right_turns.append(num_right)
 
@@ -636,27 +487,30 @@ class Game:
     @staticmethod
     def game_opening():
         dis.fill(Game.background_color)
+
+        clock.tick(1)
         font = pygame.font.SysFont(None, 500)
         text = font.render("3", True, black)
         dis.blit(text, (200, 150))
         pygame.display.flip()
-        time.sleep(1)
+        clock.tick(1)
         dis.fill(Game.background_color)
         text = font.render("2", True, black)
         dis.blit(text, (200, 150))
         pygame.display.flip()
-        time.sleep(1)
+        clock.tick(1)
         dis.fill(Game.background_color)
         text = font.render("1", True, black)
         dis.blit(text, (200, 150))
         pygame.display.flip()
-        time.sleep(1)
+        clock.tick(1)
         dis.fill(Game.background_color)
         text = font.render("GO", True, black)
         dis.blit(text, (40, 150))
         pygame.display.flip()
-        time.sleep(1)
-        dis.fill(Game.background_color)
+        clock.tick(1)
+        Game.gameloop()
+
 
     @staticmethod
     def paused():
@@ -678,7 +532,6 @@ class Game:
                 if event.type == KEYDOWN:
                     if event.key == K_ESCAPE:
                         Game.main_menu()
-                    if event.key == K_SPACE:
                         loop=0
 
     @staticmethod
@@ -757,8 +610,9 @@ class Game:
                         snake.snake_x_speed = 0
             snake.move()
             snake_coords = snake.get_coords()
-            
-            if snake_coords[0] < 0 or snake_coords[0] > 580 or snake_coords[1] < 0 or snake_coords[1] > 580:
+
+            if snake_coords[0] < 0 or snake_coords[0] > window_height-snake.height or snake_coords[1] < 0 \
+                or snake_coords[1] > window_width-snake.width:
                 Game.game_over_screen(score, number_chili)
                    
             if np.array_equal(snake_coords, apple_coords):
@@ -766,7 +620,8 @@ class Game:
                 apple.eaten()
                 apple_coords = apple.get_coordinates()
 
-                while (list(apple_coords) in snake.snake_list) or np.array_equal(apple_coords, ice_coords) or np.array_equal(apple_coords, chili_coords):
+                while (list(apple_coords) in snake.snake_list) or np.array_equal(apple_coords, ice_coords) \
+                    or np.array_equal(apple_coords, chili_coords):
                     apple.new_coordinates()
                     apple_coords = apple.get_coordinates()
 
@@ -782,7 +637,8 @@ class Game:
                     ice.eaten()
                     ice_coords = ice.get_coordinates()
 
-                    while (list(ice_coords) in snake.snake_list) or np.array_equal(apple_coords, ice_coords) or np.array_equal(ice_coords, chili_coords):
+                    while (list(ice_coords) in snake.snake_list) or np.array_equal(apple_coords, ice_coords) \
+                        or np.array_equal(ice_coords, chili_coords):
                         ice.new_coordinates()
                         ice_coords = ice.get_coordinates()
                     
@@ -796,7 +652,8 @@ class Game:
                     ice.eaten()
                     ice_coords = ice.get_coordinates()
                     
-                    while (list(ice_coords) in snake.snake_list) or np.array_equal(apple_coords, ice_coords) or np.array_equal(ice_coords, chili_coords):
+                    while (list(ice_coords) in snake.snake_list) or np.array_equal(apple_coords, ice_coords) \
+                        or np.array_equal(ice_coords, chili_coords):
                         ice.new_coordinates()
                         ice_coords = ice.get_coordinates()
 
@@ -811,7 +668,8 @@ class Game:
                     chili_coords = chili.get_coordinates()
                     number_chili += 1
                     
-                    while (list(chili_coords) in snake.snake_list) or np.array_equal(apple_coords, chili_coords) or np.array_equal(ice_coords, chili_coords):
+                    while (list(chili_coords) in snake.snake_list) or np.array_equal(apple_coords, chili_coords) \
+                        or np.array_equal(ice_coords, chili_coords):
                         chili.new_coordinates()
                         chili_coords = chili.get_coordinates()
 
@@ -826,18 +684,22 @@ class Game:
                     chili_coords = chili.get_coordinates()
                     number_chili += 1
                     
-                    while (list(chili_coords) in snake.snake_list) or np.array_equal(apple_coords, chili_coords) or np.array_equal(ice_coords, chili_coords):
+                    while (list(chili_coords) in snake.snake_list) or np.array_equal(apple_coords, chili_coords) \
+                        or np.array_equal(ice_coords, chili_coords):
                         chili.new_coordinates()
                         chili_coords = chili.get_coordinates()
 
                     chili_spawn = False
                     keep_chili = False
                     
-            if len(snake.snake_list) > snake.snake_length:
-                snake.snake_list.pop(0)
             dis.fill(Game.background_color)
+
             if snake.snake_growing():
                 Game.game_over_screen(score, number_chili)
+            
+            snake.render(dis, Game.snake_color)
+            if len(snake.snake_list) > snake.snake_length:
+                snake.snake_list.pop(0)
 
             if snake.snake_x_speed == 20:
                 pygame.draw.circle(dis,black,(snake.snake_x+14,snake.snake_y+6),4)
@@ -867,4 +729,6 @@ class Game:
             pygame.display.flip()
             clock.tick(fps)
 
-Game.game()
+
+if __name__ == '__main__':
+    Game.game()
