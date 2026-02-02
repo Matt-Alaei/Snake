@@ -45,3 +45,6 @@ Snake/
 ├── icons/           # Icons used in game
 ├── sound effects/   # Sound effects used in game
 ```
+
+## Developement
+An implementation of PPO is actively being developed (see [PPO branch](https://github.com/Matt-Alaei/Snake/tree/PPO)) and will be merged with `main`.
