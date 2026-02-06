@@ -22,7 +22,7 @@ Each NN determines whether the snake should go straight, turn right, or turn lef
 ### Reward Scheme
 The snake is rewarded for staying alive, but this is limited until the snake has reached a score of 15 (eaten 15 apples). This is implemented to inhibit the snake from learning to just stay alive and end up avoiding eating the apple. The model (snake) is also encouraged (rewarded) when moving towards the apple and eating an apple.  
 
-On the other hand, the model is punished when colliding with itself or the boundaries of the game (in other words, when losing). In addition, the snake is punished when it takes to long to eat an apple and also when it keeps rotating around itself.  
+On the other hand, the model is punished when colliding with itself or the boundaries of the game (in other words, when losing). In addition, the snake is punished when it takes too long to eat an apple and also when it keeps rotating around itself.  
 
 The model has 3 outputs, each representing the 3 possible actions that the snake can take at each frame: continue going forward, turn left, turn right.
 
